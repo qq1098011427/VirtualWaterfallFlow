@@ -1,9 +1,22 @@
 import './index.less'
 import React, {useEffect, useMemo, useRef, useState} from "react";
-import {rafThrottle} from "./utils";
-
+import {debounce, rafThrottle} from "./utils";
+const changeColumn = (width) => {
+    let realColumn
+    if (width > 1000) {
+        realColumn = 5;
+    } else if (width >= 700 && width < 1000) {
+        realColumn = 4;
+    } else if (width >= 500 && width < 700) {
+        realColumn = 3;
+    } else {
+        realColumn = 2;
+    }
+    return realColumn
+}
 const App = (props) => {
-    const { column, gap, pageSize, request } = props
+    const { gap, pageSize, request } = props
+    const column = changeColumn(document.body.clientWidth)
     const containerRef = useRef(null)
     const isFinishRef = useRef(false)
     const loadingRef = useRef(false)
@@ -96,6 +109,7 @@ const App = (props) => {
     const initScrollState = () => {
         scrollStateRef.current.viewWidth = containerRef.current.clientWidth;
         scrollStateRef.current.viewHeight = containerRef.current.clientHeight;
+        containerRef.current.scrollTop = 0
         setStart(containerRef.current.scrollTop)
     };
     const computeItemSizeMap = (arr) => {
@@ -109,34 +123,49 @@ const App = (props) => {
             return pre
         }, new Map())
     }
+    const containerObserver = new ResizeObserver((entries) => {
+        const column = changeColumn(entries[0].target.clientWidth);
+        run(column)
+    })
+    const run = debounce(async (column) => {
+        initScrollState();
+        queueRef.current = Array(...column).fill(0).map(() => ({ list: [], height: 0 }))
+        lenRef.current = 0
+        columnMinHeightRef.current = 0
+        columnMinIndexRef.current = 0
+        computeItemSizeMap(list)
+        addToQueue(list.length);
+    }, 300)
     useEffect( () => {
-        const run = async () => {
+        const getData = async () => {
             initScrollState();
             const {length, curList} = await getList();
             if (length) {
                 computeItemSizeMap(curList)
                 addToQueue(length);
             }
-            const onscroll = rafThrottle(() => {
-                const { scrollTop, clientHeight } = containerRef.current;
-                setStart(scrollTop)
-                if (scrollTop + clientHeight > columnMinHeightRef.current) {
-                    !loadingRef.current && getList().then((res) => {
-                        const {length, curList} = res
-                        if (length) {
-                            computeItemSizeMap(curList)
-                            addToQueue(length);
-                        }
-                    });
-                }
-            })
-            containerRef.current.addEventListener('scroll', onscroll);
         }
-        run()
+        getData()
+        const onscroll = rafThrottle(() => {
+            const { scrollTop, clientHeight } = containerRef.current;
+            setStart(scrollTop)
+            if (scrollTop + clientHeight > columnMinHeightRef.current) {
+                !loadingRef.current && getList().then((res) => {
+                    const {length, curList} = res
+                    if (length) {
+                        computeItemSizeMap(curList)
+                        addToQueue(length);
+                    }
+                });
+            }
+        })
+        containerRef.current.addEventListener('scroll', onscroll);
+        containerRef.current && containerObserver.observe(containerRef.current);
         return () => {
             containerRef.current.removeEventListener('scroll', onscroll)
+            containerRef.current && containerObserver.unobserve(containerRef.current);
         }
-    }, [])
+    }, [column])
 
     const renderList = useMemo(() => {
         const l = queueRef.current.reduce((pre, { list }) => pre.concat(list), [])
