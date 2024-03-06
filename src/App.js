@@ -5,16 +5,16 @@ import {rafThrottle} from "./utils";
 const App = (props) => {
     const { column, gap, pageSize, request } = props
     const containerRef = useRef(null)
-    const [isFinish, setIsFinish] = useState(false)
-    const [loading, setLoading] = useState(false)
-    const [pageIndex, setPageIndex] = useState(1)
+    const isFinishRef = useRef(false)
+    const loadingRef = useRef(false)
+    const pageIndexRef = useRef(1)
     const [list, setList] = useState([])
     const scrollStateRef = useRef({
         viewHeight: 0,
         viewWidth: 0,
-        start: 0 // scrollTop
     })
-    const end = scrollStateRef.current.start + scrollStateRef.current.viewHeight
+    const [start, setStart] = useState(0) // scrollTop
+    const end = start + scrollStateRef.current.viewHeight
     const queueRef = useRef(Array(column).fill(0).map(() => ({ list: [], height: 0 })))
     const lenRef = useRef(0)
     const itemSizeMapRef = useRef(new Map())
@@ -65,68 +65,83 @@ const App = (props) => {
             curColumn.list.push(item)
             curColumn.height += item.h
             computeColumnInfo(queueRef.current)
-            console.log(queueRef.current, '==queueRef==')
             lenRef.current += 1
         }
     }
     const getList = async () => {
-        if (isFinish) return
-        setLoading(true)
-        const l = await request(pageIndex, pageSize);
+        if (isFinishRef.current) return {
+            length: 0,
+            curList: []
+        }
+        loadingRef.current = true
+        const l = await request(pageIndexRef.current, pageSize);
         if (!l?.length) {
-            setIsFinish(true)
-            setLoading(false)
-            return
+            isFinishRef.current = true
+            loadingRef.current = false
+            return {
+                length: 0,
+                curList: []
+            }
         }
         const newList = list
         newList.push(...l)
+        loadingRef.current = false
+        pageIndexRef.current += 1
         setList(newList)
-        return l.length
+        return {
+            length: l.length,
+            curList: l
+        }
     }
     const initScrollState = () => {
         scrollStateRef.current.viewWidth = containerRef.current.clientWidth;
         scrollStateRef.current.viewHeight = containerRef.current.clientHeight;
-        scrollStateRef.current.start = containerRef.current.scrollTop;
+        setStart(containerRef.current.scrollTop)
     };
+    const computeItemSizeMap = (arr) => {
+        itemSizeMapRef.current = arr.reduce((pre, cur) => {
+            const { width: w, height: h, id } = cur
+            const width = Math.floor((scrollStateRef.current.viewWidth - (column - 1) * gap) / column)
+            pre.set(id, {
+                width,
+                height: Math.floor(h * width / w)
+            })
+            return pre
+        }, new Map())
+    }
     useEffect( () => {
         const run = async () => {
             initScrollState();
-            const len = await getList();
-            if (len) {
-                itemSizeMapRef.current = list.reduce((pre, cur) => {
-                    const { width: w, height: h, id } = cur
-                    const width = Math.floor((scrollStateRef.current.viewWidth - (column - 1) * gap) / column)
-                    pre.set(id, {
-                        width,
-                        height: Math.floor(h * width / w)
-                    })
-                    return pre
-                }, new Map())
-                addToQueue(len);
+            const {length, curList} = await getList();
+            if (length) {
+                computeItemSizeMap(curList)
+                addToQueue(length);
             }
-            console.log(itemSizeMapRef.current, '==itemSizeMapRef.current==');
             const onscroll = rafThrottle(() => {
                 const { scrollTop, clientHeight } = containerRef.current;
-                scrollStateRef.current = scrollTop;
+                setStart(scrollTop)
                 if (scrollTop + clientHeight > columnMinHeightRef.current) {
-                    !loading && getList().then((len) => {
-                        len && addToQueue(len);
+                    !loadingRef.current && getList().then((res) => {
+                        const {length, curList} = res
+                        if (length) {
+                            computeItemSizeMap(curList)
+                            addToQueue(length);
+                        }
                     });
                 }
             })
-            window.addEventListener('scroll', onscroll);
+            containerRef.current.addEventListener('scroll', onscroll);
         }
         run()
         return () => {
-            window.removeEventListener('scroll', onscroll)
+            containerRef.current.removeEventListener('scroll', onscroll)
         }
     }, [])
 
     const renderList = useMemo(() => {
         const l = queueRef.current.reduce((pre, { list }) => pre.concat(list), [])
-        return l.filter((i) => i.h + i.y > scrollStateRef.current.start && i.y < end)
-    }, [JSON.stringify(queueRef.current), scrollStateRef.current, end])
-    console.log(renderList, '==renderList==')
+        return l.filter((i) => i.h + i.y > start && i.y < end)
+    }, [JSON.stringify(queueRef.current), end])
     const listStyle = { height: `${columnMaxHeight}px` }
     return <div className="container" ref={containerRef}>
         <div className="list" style={listStyle}>
