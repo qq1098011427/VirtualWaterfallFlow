@@ -21,7 +21,7 @@ const App = (props) => {
     const isFinishRef = useRef(false)
     const loadingRef = useRef(false)
     const pageIndexRef = useRef(1)
-    const [list, setList] = useState([])
+    const listRef = useRef([])
     const scrollStateRef = useRef({
         viewHeight: 0,
         viewWidth: 0,
@@ -36,6 +36,7 @@ const App = (props) => {
     const columnMinHeightRef = useRef(0)
     const [columnMaxHeight, setColumnMaxHeight] = useState(0)
     const columnMinIndexRef = useRef(0)
+
     const computeColumnInfo = (quene) => {
         let columnMinHeight = Infinity
         let columnMaxHeight = -Infinity
@@ -53,13 +54,13 @@ const App = (props) => {
     }
     const createRealItem = (dataItem, lastItem, minIndex) => {
         const rect = itemSizeMapRef.current.get(dataItem.id)
-        const { width, height } = rect
+        const { width, height, imageHeight } = rect
         const y = lastItem ? lastItem.y + lastItem.h + gap : 0
         return {
             item: dataItem,
             y,
             h: height,
-            imageHeight: 0,
+            imageHeight,
             style: {
                 width: `${width}px`,
                 height: `${height}px`,
@@ -75,13 +76,31 @@ const App = (props) => {
             const curColumn = queueRef.current[minIndex]
             // 拿到最后一项
             const lastItem = curColumn.list[curColumn.list.length - 1] || null
-            const dataItem = list[lenRef.current]
+            const dataItem = listRef.current[lenRef.current]
             const item = createRealItem(dataItem, lastItem, minIndex)
             curColumn.list.push(item)
             curColumn.height += item.h
             computeColumnInfo(queueRef.current)
             lenRef.current += 1
         }
+    }
+    const addToTempList = (size = column * 2) => {
+        if (!(lenRef.current < listRef.current.length)) return
+        for (let i = 0; i < size; i++) {
+            const item = listRef.current[lenRef.current + i];
+            if (!item) break;
+            const rect = itemSizeMapRef.current.get(item.id);
+            tempListRef.current.push({
+                item,
+                y: 0,
+                h: 0,
+                imageHeight: rect.imageHeight,
+                style: {
+                    width: `${rect.width}px`,
+                },
+            });
+        }
+        setTempListShow(true)
     }
     const getList = async () => {
         if (isFinishRef.current) return {
@@ -98,11 +117,9 @@ const App = (props) => {
                 curList: []
             }
         }
-        const newList = list
-        newList.push(...l)
+        listRef.current.push(...l)
         loadingRef.current = false
         pageIndexRef.current += 1
-        setList(newList)
         return {
             length: l.length,
             curList: l
@@ -118,9 +135,12 @@ const App = (props) => {
         itemSizeMapRef.current = arr.reduce((pre, cur) => {
             const { width: w, height: h, id } = cur
             const width = Math.floor((scrollStateRef.current.viewWidth - (column - 1) * gap) / column)
+            // 滚动以及重新计算都会将已经计算的真实高度重置为 0
+            const rect = itemSizeMapRef.current.get(id)
             pre.set(id, {
                 width,
-                height: Math.floor(h * width / w)
+                imageHeight:  Math.floor(h * width / w),
+                height: rect ? rect.height : 0
             })
             return pre
         }, new Map())
@@ -135,8 +155,9 @@ const App = (props) => {
         lenRef.current = 0
         columnMinHeightRef.current = 0
         columnMinIndexRef.current = 0
-        computeItemSizeMap(list)
-        addToQueue(list.length);
+        computeItemSizeMap(listRef.current)
+        // addToQueue(list.length);
+        addToTempList(pageSize)
     }, 300)
     useEffect( () => {
         const getData = async () => {
@@ -144,21 +165,28 @@ const App = (props) => {
             const {length, curList} = await getList();
             if (length) {
                 computeItemSizeMap(curList)
-                addToQueue(length);
+                // addToQueue(length);
+                addToTempList(length)
             }
         }
         getData()
         const onscroll = rafThrottle((args) => {
             const { scrollTop, clientHeight } = containerRef.current;
             setStart(scrollTop)
-            if (scrollTop + clientHeight > columnMinHeightRef.current) {
-                !loadingRef.current && getList().then((res) => {
+            if (!loadingRef.current && !(lenRef.current < listRef.current.length)) {
+                getList().then((res) => {
+                    console.log('走这里需要请求')
                     const {length, curList} = res
                     if (length) {
                         computeItemSizeMap(curList)
-                        addToQueue(length);
+                        // addToQueue(length);
+                        addToTempList()
                     }
                 });
+            }
+            if (scrollTop + clientHeight > columnMinHeightRef.current) {
+                console.log('走这里不请求')
+                addToTempList()
             }
         })
         containerRef.current.addEventListener('scroll', onscroll);
@@ -168,64 +196,64 @@ const App = (props) => {
             containerRef.current && containerObserver.unobserve(containerRef.current);
         }
     }, [column])
-
+    useEffect(() => {
+        if (!tempListShow) return
+        const tempListDom = document.querySelector('.tempList');
+        [...tempListDom.children].forEach((item, index) => {
+            const rect = item.getBoundingClientRect();
+            tempListRef.current[index].h = rect.height;
+        });
+        tempListRef.current.forEach(({ item, h }) => {
+            const rect = itemSizeMapRef.current.get(item.id);
+            itemSizeMapRef.current.set(item.id, { ...rect, height: h });
+        });
+        addToQueue(tempListRef.current.length);
+        tempListRef.current = [];
+        setTempListShow(false)
+    }, [tempListShow])
     const renderList = useMemo(() => {
         const l = queueRef.current.reduce((pre, { list }) => pre.concat(list), [])
         return l.filter((i) => i.h + i.y > start && i.y < end)
     }, [JSON.stringify(queueRef.current), end])
     const listStyle = { height: `${columnMaxHeight}px` }
+    console.log('渲染列表', renderList)
+    const renderItem = ((item, style, imageHeight) => {
+        return <div
+            className="card-container item"
+            style={style}
+            key={item.id}>
+            <div className="card-image" style={{
+                height: `${imageHeight}px`,
+                background: `${item.bgColor}`
+            }}></div>
+            <div className="card-footer">
+                <div className="title">{item.title}</div>
+                <div className="author">
+                    <div className="author-info">
+                        <div className="avatar"/>
+                        <span className="name">{item.author}</span>
+                    </div>
+                    <div className="like">100</div>
+                </div>
+            </div>
+        </div>
+    })
     return <div className="container" ref={containerRef}>
         <div className="list" style={listStyle}>
             {!tempListShow
                 ? <div className="renderList">
-                {renderList.map(({item, style}) => {
-                    return <div
-                        className="card-container item"
-                        style={style}
-                        key={item.id}>
-                        <div className="card-image" style={{
-                            // height: `${item.imageHeight}px`,
-                            flex: 1,
-                            background: `${item.bgColor}`
-                        }}></div>
-                        <div className="card-footer">
-                            <div className="title">{item.title}</div>
-                            <div className="author">
-                                <div className="author-info">
-                                    <div className="avatar"/>
-                                    <span className="name">{item.author}</span>
-                                </div>
-                                <div className="like">100</div>
-                            </div>
-                        </div>
-                    </div>
+                {renderList.map(({item, style, imageHeight}) => {
+                    return renderItem(item, style, imageHeight)
                 })}
             </div>
                 : <div className="tempList">
-                    {tempListRef.current.map(({item, style}) => {
-                        return <div
-                            className="card-container item"
-                            style={{
-                                ...style,
-                                height: 'auto'
-                            }}
-                            key={item.id}>
-                            <div className="card-image" style={{
-                                height: `${item.imageHeight}px`,
-                                background: `${item.bgColor}`
-                            }}></div>
-                            <div className="card-footer">
-                                <div className="title">{item.title}</div>
-                                <div className="author">
-                                    <div className="author-info">
-                                        <div className="avatar"/>
-                                        <span className="name">{item.author}</span>
-                                    </div>
-                                    <div className="like">100</div>
-                                </div>
-                            </div>
-                        </div>})}
-                    }
+                    {tempListRef.current.map(({item, style, imageHeight}) => {
+                        const _style = {
+                            ...style,
+                            height: 'auto'
+                        }
+                        return renderItem(item, _style, imageHeight)
+                    })}
                 </div>}
         </div>
     </div>;
