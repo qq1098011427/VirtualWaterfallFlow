@@ -5,8 +5,13 @@
 .container {
     width: 100%;
     height: 90vh;
-  overflow-x: hidden;
-  overflow-y: scroll;
+      overflow-x: hidden;
+      overflow-y: scroll;
+      &::-webkit-scrollbar {
+        height:0;
+        width:0;
+        background-color: transparent; /* 设置滚动条轨道颜色为透明 */
+      }
   .list {
     position: relative;
     width: 100%;

@@ -30,6 +30,8 @@ const App = (props) => {
     const end = start + scrollStateRef.current.viewHeight
     const queueRef = useRef(Array(column).fill(0).map(() => ({ list: [], height: 0 })))
     const lenRef = useRef(0)
+    const tempListRef = useRef([]) // 临时渲染列表，获取完高度后隐藏并清空
+    const [tempListShow, setTempListShow] = useState(false)
     const itemSizeMapRef = useRef(new Map())
     const columnMinHeightRef = useRef(0)
     const [columnMaxHeight, setColumnMaxHeight] = useState(0)
@@ -146,7 +148,7 @@ const App = (props) => {
             }
         }
         getData()
-        const onscroll = rafThrottle(() => {
+        const onscroll = rafThrottle((args) => {
             const { scrollTop, clientHeight } = containerRef.current;
             setStart(scrollTop)
             if (scrollTop + clientHeight > columnMinHeightRef.current) {
@@ -174,28 +176,57 @@ const App = (props) => {
     const listStyle = { height: `${columnMaxHeight}px` }
     return <div className="container" ref={containerRef}>
         <div className="list" style={listStyle}>
-            {renderList.map(({item, style}) => {
-                return <div
+            {!tempListShow
+                ? <div className="renderList">
+                {renderList.map(({item, style}) => {
+                    return <div
                         className="card-container item"
                         style={style}
                         key={item.id}>
-                    <div className="card-image" style={{
-                        // height: `${item.imageHeight}px`,
-                        flex: 1,
-                        background: `${item.bgColor}`
-                    }}></div>
-                    <div className="card-footer">
-                        <div className="title">{item.title}</div>
-                        <div className="author">
-                            <div className="author-info">
-                                <div className="avatar"/>
-                                <span className="name">{item.author}</span>
+                        <div className="card-image" style={{
+                            // height: `${item.imageHeight}px`,
+                            flex: 1,
+                            background: `${item.bgColor}`
+                        }}></div>
+                        <div className="card-footer">
+                            <div className="title">{item.title}</div>
+                            <div className="author">
+                                <div className="author-info">
+                                    <div className="avatar"/>
+                                    <span className="name">{item.author}</span>
+                                </div>
+                                <div className="like">100</div>
                             </div>
-                            <div className="like">100</div>
                         </div>
                     </div>
-                </div>
-            })}
+                })}
+            </div>
+                : <div className="tempList">
+                    {tempListRef.current.map(({item, style}) => {
+                        return <div
+                            className="card-container item"
+                            style={{
+                                ...style,
+                                height: 'auto'
+                            }}
+                            key={item.id}>
+                            <div className="card-image" style={{
+                                height: `${item.imageHeight}px`,
+                                background: `${item.bgColor}`
+                            }}></div>
+                            <div className="card-footer">
+                                <div className="title">{item.title}</div>
+                                <div className="author">
+                                    <div className="author-info">
+                                        <div className="avatar"/>
+                                        <span className="name">{item.author}</span>
+                                    </div>
+                                    <div className="like">100</div>
+                                </div>
+                            </div>
+                        </div>})}
+                    }
+                </div>}
         </div>
     </div>;
 }
