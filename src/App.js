@@ -85,6 +85,7 @@ const App = (props) => {
         }
     }
     const addToTempList = (size = column * 2) => {
+        if (tempListRef.current?.length) tempListRef.current = []
         if (!(lenRef.current < listRef.current.length)) return
         for (let i = 0; i < size; i++) {
             const item = listRef.current[lenRef.current + i];
@@ -98,7 +99,7 @@ const App = (props) => {
                 style: {
                     width: `${rect.width}px`,
                 },
-            });
+            })
         }
         setTempListShow(true)
     }
@@ -175,7 +176,6 @@ const App = (props) => {
             setStart(scrollTop)
             if (!loadingRef.current && !(lenRef.current < listRef.current.length)) {
                 getList().then((res) => {
-                    console.log('走这里需要请求')
                     const {length, curList} = res
                     if (length) {
                         computeItemSizeMap(curList)
@@ -185,7 +185,6 @@ const App = (props) => {
                 });
             }
             if (scrollTop + clientHeight > columnMinHeightRef.current) {
-                console.log('走这里不请求')
                 addToTempList()
             }
         })
@@ -216,7 +215,6 @@ const App = (props) => {
         return l.filter((i) => i.h + i.y > start && i.y < end)
     }, [JSON.stringify(queueRef.current), end])
     const listStyle = { height: `${columnMaxHeight}px` }
-    console.log('渲染列表', renderList)
     const renderItem = ((item, style, imageHeight) => {
         return <div
             className="card-container item"
